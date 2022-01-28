@@ -136,7 +136,7 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
                          bool translating)
 {
     int opcode;
-    instr_t *instr, *next_instr, *currentIntr, *prevInstr, *temp;
+    instr_t *instr, *next_instr, *currentInstr, *prevInstr, *temp;
     /* Only bother replacing for hot code, i.e., when for_trace is true, and
      * when the underlying microarchitecture calls for it.
      */
@@ -164,11 +164,11 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
 
         // }
         
-        instrlist_t* loopCopy = instr_list_clone(drcontext, bb);
-        intstr_t *newInstr;
+        instrlist_t* loopCopy = instrlist_clone(drcontext, bb);
+        instr_t *newInstr;
         newInstr = instrlist_first_app(loopCopy);
         while (instr_get_next_app(newInstr) != NULL) {
-            instr_list_append(newInstr);
+            instrlist_append(bb, newInstr);
             newInstr = instr_get_next_app(newInstr);
         }
         switch (instr_get_opcode(instr)) {
@@ -221,12 +221,11 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
             instr_set_opcode(instr, OP_jle);
             break;
         }
-        instr_set_target(instr_get_app_pc(newInstr), instr);
-        instr_set_target(blockStart, newInstr);
+        instr_set_branch_target_pc(instr, instr_get_app_pc(newInstr));
+        instr_set_branch_target_pc(newInstr, blockStart);
         // instr_set_opcode(instr);
     }
 	dr_print_instr(drcontext, STDERR, instr, "Last in small loop:\n\t");
-	}
 
     return DR_EMIT_DEFAULT;
 
