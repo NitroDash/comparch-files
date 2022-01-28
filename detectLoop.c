@@ -136,17 +136,95 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
                          bool translating)
 {
     int opcode;
-    instr_t *instr, *next_instr;
+    instr_t *instr, *next_instr, *currentIntr, *prevInstr, *temp;
     /* Only bother replacing for hot code, i.e., when for_trace is true, and
      * when the underlying microarchitecture calls for it.
      */
     if (!for_trace || !enable)
         return DR_EMIT_DEFAULT;
 
-    instr = instrlist_first_app(bb);
-    app_pc blockStart = instr_get_app_pc(instr);
-    for (;instr_get_next_app(instr) != NULL;instr = instr_get_next_app(instr)) {}
-    if (blockStart == instr_get_branch_target_pc(instr)) {
+    // instr = instrlist_first_app(bb);
+    instr = instrlist_last_app(bb);
+    prevInstr = instrlist_first_app(bb);
+    currentInstr = instrlist_first_app(bb);
+    app_pc blockStart = instr_get_app_pc(prevInstr);
+    // int count = 0;
+    while (instr_get_next_app(currentInstr) != NULL) {
+        temp = currentInstr;
+        // prevInstr = currentInstr;
+        currentInstr = instr_get_next_app(prevInstr);
+        prevInstr = temp;
+        // count++;
+    }
+    if (blockStart >= instr_get_branch_target_pc(instr) && instr_get_branch_target_pc(instr) > instr_get_app_pc(instr)) {
+        // check instr directly above loop for a compare
+        // prevInstr = instr_get_app_pc(instr) - 4;
+        //pcode = instr_get_opcode(instr);
+        // if (instr_get_app_opcode(prevInstr) == OP_cmp) {
+
+        // }
+        
+        instrlist_t* loopCopy = instr_list_clone(drcontext, bb);
+        intstr_t *newInstr;
+        newInstr = instrlist_first_app(loopCopy);
+        while (instr_get_next_app(newInstr) != NULL) {
+            instr_list_append(newInstr);
+            newInstr = instr_get_next_app(newInstr);
+        }
+        switch (instr_get_opcode(instr)) {
+            case OP_jo :
+            instr_set_opcode(instr, OP_jno);
+            break;
+            case OP_jno :
+            instr_set_opcode(instr, OP_jo);
+            break;
+            case OP_jb :
+            instr_set_opcode(instr, OP_jnb);
+            break;
+            case OP_jnb :
+            instr_set_opcode(instr, OP_jb);
+            break;
+            case OP_jz :
+            instr_set_opcode(instr, OP_jnz);
+            break;
+            case OP_jnz :
+            instr_set_opcode(instr, OP_jz);
+            break;
+            case OP_jbe :
+            instr_set_opcode(instr, OP_jnbe);
+            break;
+            case OP_jnbe :
+            instr_set_opcode(instr, OP_jbe);
+            break;
+            case OP_js :
+            instr_set_opcode(instr, OP_jns);
+            break;
+            case OP_jns :
+            instr_set_opcode(instr, OP_js);
+            break;
+            case OP_jp :
+            instr_set_opcode(instr, OP_jnp);
+            break;
+            case OP_jnp :
+            instr_set_opcode(instr, OP_jp);
+            break;
+            case OP_jl :
+            instr_set_opcode(instr, OP_jnl);
+            break;
+            case OP_jnl :
+            instr_set_opcode(instr, OP_jl);
+            break;
+            case OP_jle :
+            instr_set_opcode(instr, OP_jnle);
+            break;
+            case OP_jnle :
+            instr_set_opcode(instr, OP_jle);
+            break;
+        }
+        instr_set_target(instr_get_app_pc(newInstr), instr);
+        instr_set_target(blockStart, newInstr);
+        // instr_set_opcode(instr);
+    }
 	dr_print_instr(drcontext, STDERR, instr, "Last in small loop:\n\t");
 	}
 
