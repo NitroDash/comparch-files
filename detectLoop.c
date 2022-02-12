@@ -142,7 +142,12 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
      */
     if (!for_trace || !enable)
         return DR_EMIT_DEFAULT;
-
+    dr_fprintf(STDERR, "Found a new block, containing:\n");
+    instr = instrlist_first_app(bb);
+    while (instr != NULL) {
+	    dr_print_instr(drcontext, STDERR, instr, "\t");
+	    instr = instr_get_next_app(instr);
+    }
     // instr = instrlist_first_app(bb);
     instr = instrlist_last_app(bb);
     prevInstr = instrlist_first_app(bb);
@@ -156,22 +161,29 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
         prevInstr = temp;
         // count++;
     }
-    if (blockStart >= instr_get_branch_target_pc(instr) && instr_get_branch_target_pc(instr) > instr_get_app_pc(instr)) {
+    if (blockStart <= instr_get_branch_target_pc(instr) && instr_get_branch_target_pc(instr) < instr_get_app_pc(instr)) {
         // check instr directly above loop for a compare
         // prevInstr = instr_get_app_pc(instr) - 4;
         //pcode = instr_get_opcode(instr);
         // if (instr_get_app_opcode(prevInstr) == OP_cmp) {
 
         // }
-        
         instrlist_t* loopCopy = instrlist_clone(drcontext, bb);
         instr_t *newInstr;
         newInstr = instrlist_first_app(loopCopy);
+	app_pc nextPC = instr_get_app_pc(instr)+instr_length(drcontext, instr);
         while (instr_get_next_app(newInstr) != NULL) {
-            instrlist_append(bb, newInstr);
+		instr_t* clone = instr_clone(drcontext, newInstr);
+		instr_set_translation(clone, nextPC);
+		nextPC += instr_length(drcontext, clone);
+            instrlist_append(bb, clone);
             newInstr = instr_get_next_app(newInstr);
         }
-        switch (instr_get_opcode(instr)) {
+	instr_set_translation(newInstr, nextPC);
+	instrlist_append(bb, newInstr);
+	dr_fprintf(STDERR, "Before opcode: %d\n", instr_get_opcode(instr));
+        instr_set_opcode(instr, instr_get_opcode(instr) ^ 1);
+	/*switch (instr_get_opcode(instr)) {
             case OP_jo :
             instr_set_opcode(instr, OP_jno);
             break;
@@ -220,13 +232,21 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
             case OP_jnle :
             instr_set_opcode(instr, OP_jle);
             break;
-        }
+        }*/
+	dr_fprintf(STDERR, "Opcode after fix: %d\n", instr_get_opcode(instr));
+	dr_print_instr(drcontext, STDERR, instr, "Loop thingy: ");
         instr_set_branch_target_pc(instr, instr_get_app_pc(newInstr));
         instr_set_branch_target_pc(newInstr, blockStart);
         // instr_set_opcode(instr);
     }
 	dr_print_instr(drcontext, STDERR, instr, "Last in small loop:\n\t");
 
+    dr_fprintf(STDERR, "New block:\n");
+    instr = instrlist_first_app(bb);
+    while (instr != NULL) {
+	    dr_print_instr(drcontext, STDERR, instr, "\t");
+	    instr = instr_get_next_app(instr);
+    }
     return DR_EMIT_DEFAULT;
 
     for (instr = instrlist_first_app(bb); instr != NULL; instr = next_instr) {
