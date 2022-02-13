@@ -16,6 +16,7 @@ main:
 loop:
 	add	rax, 1
 	add	rax, 3
+	mov al, 200
 	cmp	rax, 204
 	jle loop
 	sub     rax, 204
