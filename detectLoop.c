@@ -137,6 +137,8 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
 {
     int opcode;
     instr_t *instr, *next_instr, *currentInstr, *prevInstr, *temp;
+    instr_t loads[5];
+    int numLoads = 0;
     /* Only bother replacing for hot code, i.e., when for_trace is true, and
      * when the underlying microarchitecture calls for it.
      */
@@ -155,6 +157,12 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
     app_pc blockStart = instr_get_app_pc(prevInstr);
     // int count = 0;
     while (instr_get_next_app(currentInstr) != NULL) {
+        if (instr_get_opcode(currentInstr) == OP_load) {
+            if (numLoads < 5) {
+                loads[numLoads] = currentInstr;
+                numLoads++;
+            }
+        }
         temp = currentInstr;
         // prevInstr = currentInstr;
         currentInstr = instr_get_next_app(prevInstr);
@@ -172,11 +180,22 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
         instr_t *newInstr;
         newInstr = instrlist_first_app(loopCopy);
 	app_pc nextPC = instr_get_app_pc(instr)+instr_length(drcontext, instr);
+        int loadCount = 0;
         while (instr_get_next_app(newInstr) != NULL) {
 		instr_t* clone = instr_clone(drcontext, newInstr);
 		instr_set_translation(clone, nextPC);
 		nextPC += instr_length(drcontext, clone);
-            instrlist_append(bb, clone);
+        if (loadCount < numLoads) {
+                if (loads[loadCount] == newInstr) {
+                    // puts the load in the "old" section of the list instead of the new section
+                    DR_API void instrlist_postinsert(bb, loads[loadCount], clone);
+                    loadCount++;
+                }
+            } else {
+                instrlist_append(bb, clone);
+            }
+            // newInstr = instr_get_next_app(newInstr);
+            // instrlist_append(bb, clone);
             newInstr = instr_get_next_app(newInstr);
         }
 	instr_set_translation(newInstr, nextPC);
