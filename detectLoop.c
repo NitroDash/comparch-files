@@ -138,6 +138,7 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
     int opcode;
     instr_t *instr, *next_instr, *currentInstr, *prevInstr, *temp;
     instr_t *loads[5];
+    int validLoads[5];
     int numLoads = 0;
     /* Only bother replacing for hot code, i.e., when for_trace is true, and
      * when the underlying microarchitecture calls for it.
@@ -160,7 +161,14 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
         if (instr_get_opcode(currentInstr) == 57) {
             if (numLoads < 5) {
                 loads[numLoads] = currentInstr;
+                validLoads[numLoads] = 1;
                 numLoads++;
+            }
+        } else {
+            for (int k = 0; k < numLoads; k++) {
+                if (instr_get_dst(currentInstr, 0) == instr_get_src(loads[k], 0)) {
+                    validLoads[k] = 0;
+                }
             }
         }
         temp = currentInstr;
@@ -187,7 +195,7 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
 		instr_set_translation(clone, nextPC);
 		nextPC += instr_length(drcontext, clone);
         if (loadCount < numLoads) {
-                if (instr_get_app_pc(loads[loadCount]) == instr_get_app_pc(newInstr)) {
+                if ((instr_get_app_pc(loads[loadCount]) == instr_get_app_pc(newInstr)) && (validLoads[loadCount] == 1)) {
                     // puts the load in the "old" section of the list instead of the new section
                     dr_fprintf(STDERR, "inserting: %d\n", instr_get_opcode(clone));
                     instrlist_postinsert(bb, loads[loadCount], clone);
