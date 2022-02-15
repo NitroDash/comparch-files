@@ -164,13 +164,13 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
                 validLoads[numLoads] = 1;
                 numLoads++;
             }
-        } else {
-            for (int k = 0; k < numLoads; k++) {
-                if (instr_get_dst(currentInstr, 0) == instr_get_src(loads[k], 0)) {
-                    validLoads[k] = 0;
-                }
-            }
-        }
+        } // else {
+        //     for (int k = 0; k < numLoads; k++) {
+        //         if (instr_get_dst(currentInstr, 0) == instr_get_src(loads[k], 0)) {
+        //             validLoads[k] = 0;
+        //         }
+        //     }
+        // }
         temp = currentInstr;
         // prevInstr = currentInstr;
         currentInstr = instr_get_next_app(prevInstr);
@@ -185,12 +185,12 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
 
         // }
         instrlist_t* loopCopy = instrlist_clone(drcontext, bb);
-        instr_t *newInstr;
+        instr_t *newInstr, *prevInstr;
         newInstr = instrlist_first_app(loopCopy);
-	app_pc nextPC = instr_get_app_pc(instr)+instr_length(drcontext, instr);
+	app_pc nextPC = instr_get_app_pc(newInstr)+1;
         int loadCount = 0;
         while (instr_get_next_app(newInstr) != NULL) {
-        dr_fprintf(STDERR, "opcode: %d\n", instr_get_opcode(newInstr));
+        // dr_fprintf(STDERR, "NextPC: %d\n", nextPC);
 		instr_t* clone = instr_clone(drcontext, newInstr);
 		instr_set_translation(clone, nextPC);
 		nextPC += instr_length(drcontext, clone);
@@ -199,20 +199,40 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
                     // puts the load in the "old" section of the list instead of the new section
                     dr_fprintf(STDERR, "inserting: %d\n", instr_get_opcode(clone));
                     instrlist_postinsert(bb, loads[loadCount], clone);
+                    instr_set_translation(clone, instr_get_app_pc(loads[loadCount])+1);
                     loadCount++;
                 } else {
                     dr_fprintf(STDERR, "appending: %d\n", instr_get_opcode(clone));
-                    instrlist_append(bb, clone);
+                    // instrlist_append(bb, clone);
+                    // instr_t* temp = instr_get_next(instrlist_last_app(bb));
+                    instrlist_postinsert(bb, instrlist_last_app(bb), clone);
+                    // instr_set_next(instrlist_last_app(bb), clone);
+                    // instr_set_next(temp, clone);
                 }
             } else {
                 dr_fprintf(STDERR, "appending: %d\n", instr_get_opcode(clone));
-                instrlist_append(bb, clone);
+                // instrlist_append(bb, clone);
+                // instr_t* temp = instr_get_next(instrlist_last_app(bb));
+                instrlist_postinsert(bb, instrlist_last_app(bb), clone);
+                    // instr_set_next(instrlist_last_app(bb), clone);
+                    // instr_set_next(clone, temp);
             }
             // newInstr = instr_get_next_app(newInstr);
             // instrlist_append(bb, clone);
+            prevInstr = newInstr;
             newInstr = instr_get_next_app(newInstr);
         }
-	instr_set_translation(newInstr, nextPC);
+        instr_t* clone = instr_clone(drcontext, newInstr);
+		// instr_set_translation(clone, nextPC);
+        // instrlist_append(bb, clone);
+        instr_t* temp = instr_get_next(instrlist_last_app(bb));
+                    instr_set_next(instrlist_last_app(bb), clone);
+                    instr_set_next(clone, temp);
+        // instr_set_next(prevInstr, clone);
+        instr_set_translation(instr, nextPC);
+        app_pc fallThrough = instr_get_app_pc(clone)+instr_length(drcontext, clone);
+        instrlist_set_fall_through_target(bb, fallThrough);
+	// instr_set_translation(newInstr, nextPC);
 	// instrlist_append(bb, newInstr);
 	dr_fprintf(STDERR, "Before opcode: %d\n", instr_get_opcode(instr));
         instr_set_opcode(instr, instr_get_opcode(instr) ^ 1);
