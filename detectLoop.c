@@ -136,20 +136,170 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
                          bool translating)
 {
     int opcode;
-    instr_t *instr, *next_instr;
+    instr_t *instr, *next_instr, *currentInstr, *prevInstr, *temp;
+    instr_t *loads[5];
+    int validLoads[5];
+    int numLoads = 0;
     /* Only bother replacing for hot code, i.e., when for_trace is true, and
      * when the underlying microarchitecture calls for it.
      */
     if (!for_trace || !enable)
         return DR_EMIT_DEFAULT;
-
+    dr_fprintf(STDERR, "Found a new block, containing:\n");
     instr = instrlist_first_app(bb);
-    app_pc blockStart = instr_get_app_pc(instr);
-    for (;instr_get_next_app(instr) != NULL;instr = instr_get_next_app(instr)) {}
-    if (blockStart == instr_get_branch_target_pc(instr)) {
-	dr_print_instr(drcontext, STDERR, instr, "Last in small loop:\n\t");
-	}
+    while (instr != NULL) {
+	    dr_print_instr(drcontext, STDERR, instr, "\t");
+	    instr = instr_get_next_app(instr);
+    }
+    // instr = instrlist_first_app(bb);
+    instr = instrlist_last_app(bb);
+    prevInstr = instrlist_first_app(bb);
+    currentInstr = instrlist_first_app(bb);
+    app_pc blockStart = instr_get_app_pc(prevInstr);
+    // int count = 0;
+    while (instr_get_next_app(currentInstr) != NULL) {
+        if (instr_get_opcode(currentInstr) == 57) {
+            if (numLoads < 5) {
+                loads[numLoads] = currentInstr;
+                validLoads[numLoads] = 1;
+                numLoads++;
+            }
+        } // else {
+        //     for (int k = 0; k < numLoads; k++) {
+        //         if (instr_get_dst(currentInstr, 0) == instr_get_src(loads[k], 0)) {
+        //             validLoads[k] = 0;
+        //         }
+        //     }
+        // }
+        temp = currentInstr;
+        // prevInstr = currentInstr;
+        currentInstr = instr_get_next_app(prevInstr);
+        prevInstr = temp;
+        // count++;
+    }
+    if (blockStart <= instr_get_branch_target_pc(instr) && instr_get_branch_target_pc(instr) < instr_get_app_pc(instr)) {
+        // check instr directly above loop for a compare
+        // prevInstr = instr_get_app_pc(instr) - 4;
+        //pcode = instr_get_opcode(instr);
+        // if (instr_get_app_opcode(prevInstr) == OP_cmp) {
 
+        // }
+        instrlist_t* loopCopy = instrlist_clone(drcontext, bb);
+        instr_t *newInstr, *prevInstr;
+        newInstr = instrlist_first_app(loopCopy);
+	app_pc nextPC = instr_get_app_pc(newInstr)+1;
+        int loadCount = 0;
+        while (instr_get_next_app(newInstr) != NULL) {
+        // dr_fprintf(STDERR, "NextPC: %d\n", nextPC);
+		instr_t* clone = instr_clone(drcontext, newInstr);
+		instr_set_translation(clone, nextPC);
+		nextPC += instr_length(drcontext, clone);
+        if (loadCount < numLoads) {
+                if ((instr_get_app_pc(loads[loadCount]) == instr_get_app_pc(newInstr)) && (validLoads[loadCount] == 1)) {
+                    // puts the load in the "old" section of the list instead of the new section
+                    dr_fprintf(STDERR, "inserting: %d\n", instr_get_opcode(clone));
+                    instrlist_postinsert(bb, loads[loadCount], clone);
+                    instr_set_translation(clone, instr_get_app_pc(loads[loadCount])+1);
+                    loadCount++;
+                } else {
+                    dr_fprintf(STDERR, "appending: %d\n", instr_get_opcode(clone));
+                    // instrlist_append(bb, clone);
+                    // instr_t* temp = instr_get_next(instrlist_last_app(bb));
+                    instrlist_postinsert(bb, instrlist_last_app(bb), clone);
+                    // instr_set_next(instrlist_last_app(bb), clone);
+                    // instr_set_next(temp, clone);
+                }
+            } else {
+                dr_fprintf(STDERR, "appending: %d\n", instr_get_opcode(clone));
+                // instrlist_append(bb, clone);
+                // instr_t* temp = instr_get_next(instrlist_last_app(bb));
+                instrlist_postinsert(bb, instrlist_last_app(bb), clone);
+                    // instr_set_next(instrlist_last_app(bb), clone);
+                    // instr_set_next(clone, temp);
+            }
+            // newInstr = instr_get_next_app(newInstr);
+            // instrlist_append(bb, clone);
+            prevInstr = newInstr;
+            newInstr = instr_get_next_app(newInstr);
+        }
+        instr_t* clone = instr_clone(drcontext, newInstr);
+		// instr_set_translation(clone, nextPC);
+        // instrlist_append(bb, clone);
+        instr_t* temp = instr_get_next(instrlist_last_app(bb));
+                    instr_set_next(instrlist_last_app(bb), clone);
+                    instr_set_next(clone, temp);
+        // instr_set_next(prevInstr, clone);
+        instr_set_translation(instr, nextPC);
+        app_pc fallThrough = instr_get_app_pc(clone)+instr_length(drcontext, clone);
+        instrlist_set_fall_through_target(bb, fallThrough);
+	// instr_set_translation(newInstr, nextPC);
+	// instrlist_append(bb, newInstr);
+	dr_fprintf(STDERR, "Before opcode: %d\n", instr_get_opcode(instr));
+        instr_set_opcode(instr, instr_get_opcode(instr) ^ 1);
+	/*switch (instr_get_opcode(instr)) {
+            case OP_jo :
+            instr_set_opcode(instr, OP_jno);
+            break;
+            case OP_jno :
+            instr_set_opcode(instr, OP_jo);
+            break;
+            case OP_jb :
+            instr_set_opcode(instr, OP_jnb);
+            break;
+            case OP_jnb :
+            instr_set_opcode(instr, OP_jb);
+            break;
+            case OP_jz :
+            instr_set_opcode(instr, OP_jnz);
+            break;
+            case OP_jnz :
+            instr_set_opcode(instr, OP_jz);
+            break;
+            case OP_jbe :
+            instr_set_opcode(instr, OP_jnbe);
+            break;
+            case OP_jnbe :
+            instr_set_opcode(instr, OP_jbe);
+            break;
+            case OP_js :
+            instr_set_opcode(instr, OP_jns);
+            break;
+            case OP_jns :
+            instr_set_opcode(instr, OP_js);
+            break;
+            case OP_jp :
+            instr_set_opcode(instr, OP_jnp);
+            break;
+            case OP_jnp :
+            instr_set_opcode(instr, OP_jp);
+            break;
+            case OP_jl :
+            instr_set_opcode(instr, OP_jnl);
+            break;
+            case OP_jnl :
+            instr_set_opcode(instr, OP_jl);
+            break;
+            case OP_jle :
+            instr_set_opcode(instr, OP_jnle);
+            break;
+            case OP_jnle :
+            instr_set_opcode(instr, OP_jle);
+            break;
+        }*/
+	dr_fprintf(STDERR, "Opcode after fix: %d\n", instr_get_opcode(instr));
+	dr_print_instr(drcontext, STDERR, instr, "Loop thingy: ");
+        instr_set_branch_target_pc(instr, instr_get_app_pc(newInstr));
+        instr_set_branch_target_pc(newInstr, blockStart);
+        // instr_set_opcode(instr);
+    }
+	dr_print_instr(drcontext, STDERR, instr, "Last in small loop:\n\t");
+
+    dr_fprintf(STDERR, "New block:\n");
+    instr = instrlist_first_app(bb);
+    while (instr != NULL) {
+	    dr_print_instr(drcontext, STDERR, instr, "\t");
+	    instr = instr_get_next_app(instr);
+    }
     return DR_EMIT_DEFAULT;
 
     for (instr = instrlist_first_app(bb); instr != NULL; instr = next_instr) {
