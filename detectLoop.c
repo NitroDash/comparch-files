@@ -42,6 +42,7 @@
  */
 
 #include "dr_api.h"
+#include "drmgr.h"
 
 #ifdef WINDOWS
 #    define DISPLAY_STRING(msg) dr_messagebox(msg)
@@ -72,15 +73,19 @@ event_exit(void);
 DR_EXPORT void
 dr_client_main(client_id_t id, int argc, const char *argv[])
 {
+    // bin64/drrun -c ./api/samples/bin/libdetectLoop.so -- hello
     dr_set_client_name("Loop detection (hopefully)",
                        "http://dynamorio.org/issues");
 
+    if (!drmgr_init())
+        DR_ASSERT(false);
     /* Register for our events: process exit, and code transformation.
      * We're changing the app's code, rather than just inserting observational
      * instrumentation.
      */
     dr_register_exit_event(event_exit);
-    dr_register_bb_event(event_instruction_change);
+    if (!drmgr_register_bb_app2app_event(event_instruction_change, NULL))
+            DR_ASSERT(false);
 
     /* Long ago, this optimization would target the Pentium 4 (identified via
      * "proc_get_family() == FAMILY_PENTIUM_4"), where an add of 1 is faster
@@ -91,6 +96,7 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
     enable = true;
 
     /* Make it easy to tell by looking at the log file which client executed. */
+    // dr_fprintf(STDERR, "Client detectLoop is running\n");
     dr_log(NULL, DR_LOG_ALL, 1, "Client 'detectLoop' initializing\n");
 #ifdef SHOW_RESULTS
     /* Also give notification to stderr */
@@ -125,7 +131,9 @@ event_exit(void)
     msg[sizeof(msg) / sizeof(msg[0]) - 1] = '\0';
     DISPLAY_STRING(msg);
 #endif /* SHOW_RESULTS */
-    dr_unregister_bb_event(event_instruction_change);
+    dr_fprintf(STDERR, "The End\n");
+    drmgr_unregister_bb_app2app_event(event_instruction_change);
+    drmgr_exit();
 }
 
 /* Replaces inc with add 1, dec with sub 1.
@@ -135,6 +143,14 @@ static dr_emit_flags_t
 event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_trace,
                          bool translating)
 {
+    dr_fprintf(STDERR, "Event running\n");
+    char msg[256];
+    int len;
+    len = dr_snprintf(msg, sizeof(msg) / sizeof(msg[0]),
+                          "decided to keep all original inc/dec\n");
+    DR_ASSERT(len > 0);
+    msg[sizeof(msg) / sizeof(msg[0]) - 1] = '\0';
+    DISPLAY_STRING(msg);
     int opcode;
     instr_t *instr, *next_instr, *currentInstr, *prevInstr, *temp;
     instr_t *loads[5];
@@ -194,8 +210,14 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
 		instr_t* clone = instr_clone(drcontext, newInstr);
 		instr_set_translation(clone, nextPC);
 		nextPC += instr_length(drcontext, clone);
+        if (instr_get_app_pc(newInstr) < instr_get_branch_target_pc(instr)) {
+            prevInstr = newInstr;
+            newInstr = instr_get_next_app(newInstr);
+            continue;
+        }
         if (loadCount < numLoads) {
-                if ((instr_get_app_pc(loads[loadCount]) == instr_get_app_pc(newInstr)) && (validLoads[loadCount] == 1)) {
+// JAKE: ADD IN THE LINE BELOW!!!!
+                if ((instr_get_app_pc(loads[loadCount]) == instr_get_app_pc(newInstr)) && (validLoads[loadCount] == 1)) { //&& // JAKE ADD HERE) {
                     // puts the load in the "old" section of the list instead of the new section
                     dr_fprintf(STDERR, "inserting: %d\n", instr_get_opcode(clone));
                     instrlist_postinsert(bb, loads[loadCount], clone);
@@ -292,6 +314,27 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
         instr_set_branch_target_pc(newInstr, blockStart);
         // instr_set_opcode(instr);
     }
+    // instrlist_t *original = instrlist_clone(drcontext, bb);
+
+    // instr_t *last = instrlist_last_app(original);
+    // if (drbbdup_is_special_instr(last)) {
+    //     instrlist_remove(original, last);
+    //     instr_destroy(drcontext, last);
+    // }
+
+    // if (instrlist_first(original) != NULL) {
+    //     instrlist_t *dup = instrlist_clone(drcontext, original);
+    //     instr_t *start = instrlist_first(dup);
+    //     instrlist_prepend(bb, start);
+
+    //     /* Empty list and destroy. Do not use clear as instrs are needed. */
+    //     instrlist_init(dup);
+    //     instrlist_destroy(drcontext, dup);
+    // }
+
+    // instrlist_clear_and_destroy(drcontext, original);
+
+
 	dr_print_instr(drcontext, STDERR, instr, "Last in small loop:\n\t");
 
     dr_fprintf(STDERR, "New block:\n");
@@ -320,9 +363,6 @@ event_instruction_change(void *drcontext, void *tag, instrlist_t *bb, bool for_t
 }
 
 static bool fix_div_by_zero(void *drcontext, instr_t *instr, instrlist_t *bb) {
-    instr_t *new_instr;
-    uint eflags;
-    int opcode = instr_get_opcode(instr);
     dr_print_instr(drcontext, STDERR, instr, "Found a new add instruction:\n\t");
     dr_print_opnd(drcontext, STDERR, instr_get_src(instr,0), "First operand: ");
     /*new_instr = instr_create_1dst_2src(drcontext,
